@@ -8,8 +8,42 @@ const Sound = (() => {
 
   const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
-  // Browsers only allow audio after a tap or key press, so the game calls this then.
+  // A short silent WAV, made on the spot.
+  function silentWavUrl() {
+    const samples = 4410;
+    const b = new DataView(new ArrayBuffer(44 + samples));
+    const str = (o, s) => [...s].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+    str(0, 'RIFF'); b.setUint32(4, 36 + samples, true); str(8, 'WAVE');
+    str(12, 'fmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+    b.setUint32(24, 44100, true); b.setUint32(28, 44100, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true);
+    str(36, 'data'); b.setUint32(40, samples, true);
+    for (let i = 0; i < samples; i++) b.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  }
+
+  // On iPhones, Web Audio is silenced by the ring/silent switch unless the page says it's
+  // playing real media. Newer iOS lets us say so directly; older iOS needs a silent
+  // <audio> element kept playing to get the same effect.
+  let keepAlive = null;
+  function asMedia() {
+    try {
+      if (navigator.audioSession) {
+        navigator.audioSession.type = 'playback';
+        return;
+      }
+    } catch {}
+    if (!/iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) return;
+    if (!keepAlive) {
+      keepAlive = new Audio(silentWavUrl());
+      keepAlive.loop = true;
+      keepAlive.setAttribute('playsinline', '');
+    }
+    if (keepAlive.paused) keepAlive.play().catch(() => {});
+  }
+
+  // Browsers only allow audio after a tap or key press, so this runs on every one.
   function unlock() {
+    asMedia();
     if (!ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
@@ -18,8 +52,23 @@ const Sound = (() => {
       master.gain.value = muted ? 0 : 0.6;
       master.connect(ctx.destination);
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    // iOS also pauses audio ('interrupted') after a call, the lock screen, or switching apps.
+    if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    // Playing one silent sample inside the tap is what finally wakes audio on some iOS versions.
+    const src = ctx.createBufferSource();
+    src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    src.connect(ctx.destination);
+    src.start(0);
   }
+
+  // iOS only counts some events as a real tap for audio (touchend and click, not touchstart),
+  // so listen for all of them.
+  for (const type of ['touchend', 'pointerup', 'click', 'keydown']) {
+    document.addEventListener(type, unlock, { capture: true, passive: true });
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  });
 
   function ready() {
     return ctx && !muted && ctx.state === 'running';
