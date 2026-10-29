@@ -12,8 +12,7 @@
   const WALL_L = 45;                     // inside edges of the cauldron
   const WALL_R = 435;
   const RIM_Y = 170;                     // the boil-over line
-  const BOWL_Y = 420;                    // where the straight sides meet the round bottom
-  const BOWL_R = (WALL_R - WALL_L) / 2;
+  const FLOOR_Y = 555;                   // the flat bottom of the cauldron
   const LIQUID_Y = 290;
   const DROP_Y = 82;
   const WALL_T = 40;
@@ -25,7 +24,7 @@
   const STIR_TIME = 1700;
   const STIR_MAX = 3;
   const STIR_REWARD_TIER = 6;            // brewing a Skull or better earns a stir back
-  const STIR_CENTER_Y = 440;
+  const STIR_CENTER_Y = 420;
   const STIR_MAX_SPEED = 9;
   const LAST = INGREDIENTS.length - 1;
 
@@ -156,21 +155,14 @@
   function buildCauldron() {
     const opts = { isStatic: true, friction: 0.2, restitution: 0.1, label: 'wall' };
     const top = -100;
-    const parts = [
-      Bodies.rectangle(WALL_L - WALL_T / 2, (top + BOWL_Y) / 2, WALL_T, BOWL_Y - top, opts),
-      Bodies.rectangle(WALL_R + WALL_T / 2, (top + BOWL_Y) / 2, WALL_T, BOWL_Y - top, opts),
+    const bottom = FLOOR_Y + WALL_T;
+    return [
+      Bodies.rectangle(WALL_L - WALL_T / 2, (top + bottom) / 2, WALL_T, bottom - top, opts),
+      Bodies.rectangle(WALL_R + WALL_T / 2, (top + bottom) / 2, WALL_T, bottom - top, opts),
+      Bodies.rectangle(CX, FLOOR_Y + WALL_T / 2, WALL_R - WALL_L + WALL_T * 2, WALL_T, opts),
       // An invisible lid above the screen so nothing can fly out.
       Bodies.rectangle(CX, -WALL_T / 2, W + WALL_T * 2, WALL_T, opts),
     ];
-    // The round bottom is a ring of short planks laid tangent to the circle.
-    const n = 24;
-    const ringR = BOWL_R + WALL_T / 2;
-    const plank = (Math.PI * ringR / n) * 1.15;
-    for (let i = 0; i < n; i++) {
-      const a = ((i + 0.5) / n) * Math.PI;
-      parts.push(Bodies.rectangle(CX + Math.cos(a) * ringR, BOWL_Y + Math.sin(a) * ringR, plank, WALL_T, { ...opts, angle: a + Math.PI / 2 }));
-    }
-    return parts;
   }
 
   Composite.add(engine.world, buildCauldron());
@@ -434,24 +426,22 @@
     return LIQUID_Y + Math.sin(x * 0.035 + t * 1.7) * amp + Math.sin(x * 0.08 - t * 2.6) * amp * 0.5;
   }
 
-  function bowlBottomAt(x) {
-    const dx = x - CX;
-    return BOWL_Y + Math.sqrt(Math.max(0, BOWL_R * BOWL_R - dx * dx));
-  }
-
   function updateEffects() {
     const t = now / 1000;
 
-    // witch fire under the cauldron
-    for (let i = 0; i < 2; i++) {
-      const life = rand(400, 800);
-      particles.push({ x: CX + rand(-100, 100), y: 668, vx: rand(-0.3, 0.3), vy: rand(-2.2, -1.1), g: 0, drag: 1, life, max: life, size: rand(6, 12), color: Math.random() < 0.7 ? '#5dff9d' : '#b06bff', fire: true });
+    // the fire under the cauldron, with the odd ember
+    for (let i = 0; i < 3; i++) {
+      const life = rand(350, 750);
+      particles.push({ x: CX + rand(-105, 105), y: 655, vx: rand(-0.3, 0.3), vy: rand(-2.2, -1.1), g: 0, drag: 1, life, max: life, size: rand(6, 13), color: FLAME_COLORS[Math.floor(Math.random() * FLAME_COLORS.length)], fire: true });
+    }
+    if (Math.random() < 0.08) {
+      particles.push({ x: CX + rand(-90, 90), y: 650, vx: rand(-0.8, 0.8), vy: rand(-3, -2), g: 0, drag: 0.99, life: 900, max: 900, size: rand(1.5, 2.5), color: '#ffd27a', fire: true });
     }
 
     // bubbles rising through the brew
     if (Math.random() < (stirLeft > 0 ? 0.6 : 0.18)) {
       const x = rand(WALL_L + 12, WALL_R - 12);
-      bubbles.push({ x, y: bowlBottomAt(x) - rand(10, 40), r: rand(2, 6), vy: rand(-1, -0.4), wob: Math.random() * TAU });
+      bubbles.push({ x, y: FLOOR_Y - rand(10, 40), r: rand(2, 6), vy: rand(-1, -0.4), wob: Math.random() * TAU });
     }
     for (const b of bubbles) {
       b.y += b.vy;
@@ -532,65 +522,35 @@
   }
 
   // ---- Drawing ----
-  const stars = Array.from({ length: 70 }, () => ({ x: Math.random() * W, y: Math.random() * H * 0.75, r: rand(0.5, 1.6), p: Math.random() * TAU }));
+  const FLAME_COLORS = ['#ff3b1a', '#ff5a1f', '#ff7a22', '#ff9a2e', '#ffc04a'];
 
   function interiorPath() {
+    const cr = 10;
     ctx.beginPath();
     ctx.moveTo(WALL_L, RIM_Y);
-    ctx.lineTo(WALL_L, BOWL_Y);
-    ctx.arc(CX, BOWL_Y, BOWL_R, Math.PI, 0, true);
+    ctx.lineTo(WALL_L, FLOOR_Y - cr);
+    ctx.arcTo(WALL_L, FLOOR_Y, WALL_L + cr, FLOOR_Y, cr);
+    ctx.lineTo(WALL_R - cr, FLOOR_Y);
+    ctx.arcTo(WALL_R, FLOOR_Y, WALL_R, FLOOR_Y - cr, cr);
     ctx.lineTo(WALL_R, RIM_Y);
     ctx.closePath();
   }
 
+  // A pot-bellied outside around the flat-bottomed inside.
   function outerPath() {
-    const bottom = BOWL_Y + BOWL_R + 22;
     ctx.beginPath();
     ctx.moveTo(WALL_L - 14, RIM_Y);
-    ctx.bezierCurveTo(WALL_L - 60, RIM_Y + 120, WALL_L - 50, BOWL_Y + BOWL_R * 0.9, CX, bottom);
-    ctx.bezierCurveTo(WALL_R + 50, BOWL_Y + BOWL_R * 0.9, WALL_R + 60, RIM_Y + 120, WALL_R + 14, RIM_Y);
+    ctx.bezierCurveTo(WALL_L - 48, RIM_Y + 100, WALL_L - 44, FLOOR_Y - 40, WALL_L - 8, FLOOR_Y + 18);
+    ctx.quadraticCurveTo(CX, FLOOR_Y + 36, WALL_R + 8, FLOOR_Y + 18);
+    ctx.bezierCurveTo(WALL_R + 44, FLOOR_Y - 40, WALL_R + 48, RIM_Y + 100, WALL_R + 14, RIM_Y);
     ctx.closePath();
-  }
-
-  function drawBackground(t) {
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#0d0716');
-    sky.addColorStop(0.6, '#1e1030');
-    sky.addColorStop(1, '#120a1c');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H);
-
-    for (const s of stars) {
-      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(t * 1.5 + s.p);
-      ctx.fillStyle = '#e9dcff';
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, TAU);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // the moon, with a bite taken out of it
-    const mx = 72, my = 132;
-    const glow = ctx.createRadialGradient(mx, my, 10, mx, my, 70);
-    glow.addColorStop(0, 'rgba(255, 240, 200, 0.25)');
-    glow.addColorStop(1, 'rgba(255, 240, 200, 0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(mx - 70, my - 70, 140, 140);
-    ctx.fillStyle = '#f3e7c4';
-    ctx.beginPath();
-    ctx.arc(mx, my, 24, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = '#1a0e29';
-    ctx.beginPath();
-    ctx.arc(mx + 11, my - 6, 21, 0, TAU);
-    ctx.fill();
   }
 
   function drawFire() {
     // logs
     ctx.fillStyle = '#3b2414';
     ctx.save();
-    ctx.translate(CX, 676);
+    ctx.translate(CX, 664);
     ctx.rotate(0.12);
     ctx.fillRect(-110, -8, 220, 16);
     ctx.rotate(-0.24);
@@ -616,26 +576,26 @@
     ctx.fillStyle = '#16131c';
     for (const sx of [-1, 1]) {
       ctx.beginPath();
-      ctx.moveTo(CX + sx * 105, 610);
-      ctx.lineTo(CX + sx * 140, 610);
-      ctx.lineTo(CX + sx * 150, 668);
-      ctx.lineTo(CX + sx * 128, 668);
+      ctx.moveTo(CX + sx * 120, FLOOR_Y + 10);
+      ctx.lineTo(CX + sx * 160, FLOOR_Y + 10);
+      ctx.lineTo(CX + sx * 168, 655);
+      ctx.lineTo(CX + sx * 146, 655);
       ctx.closePath();
       ctx.fill();
     }
 
     // iron body
     outerPath();
-    const iron = ctx.createLinearGradient(0, RIM_Y, W, BOWL_Y + BOWL_R);
+    const iron = ctx.createLinearGradient(0, RIM_Y, W, FLOOR_Y + 30);
     iron.addColorStop(0, '#3a3546');
     iron.addColorStop(0.45, '#1c1924');
     iron.addColorStop(1, '#0a090e');
     ctx.fillStyle = iron;
     ctx.fill();
-    // green fire glow on the underside
-    const under = ctx.createRadialGradient(CX, 660, 20, CX, 640, 200);
-    under.addColorStop(0, 'rgba(93, 255, 157, 0.35)');
-    under.addColorStop(1, 'rgba(93, 255, 157, 0)');
+    // firelight on the underside
+    const under = ctx.createRadialGradient(CX, 650, 20, CX, 620, 190);
+    under.addColorStop(0, 'rgba(255, 110, 30, 0.45)');
+    under.addColorStop(1, 'rgba(255, 110, 30, 0)');
     ctx.fillStyle = under;
     ctx.fill();
 
@@ -651,7 +611,7 @@
     for (let x = WALL_L; x <= WALL_R; x += 8) ctx.lineTo(x, surfaceY(x, t));
     ctx.lineTo(WALL_R, H);
     ctx.closePath();
-    const brew = ctx.createLinearGradient(0, LIQUID_Y, 0, BOWL_Y + BOWL_R);
+    const brew = ctx.createLinearGradient(0, LIQUID_Y, 0, FLOOR_Y);
     brew.addColorStop(0, '#4fbf3a');
     brew.addColorStop(0.25, '#1f6b28');
     brew.addColorStop(1, '#0b2a14');
@@ -734,7 +694,7 @@
 
   // The highest point under x that a dropped ingredient would land on.
   function landingY(x, r) {
-    let y = bowlBottomAt(x) - r;
+    let y = FLOOR_Y - r;
     for (const b of ingredients) {
       const reach = b.circleRadius + r;
       const dx = Math.abs(b.position.x - x);
@@ -844,9 +804,10 @@
 
   function render() {
     const t = now / 1000;
+    drawSky(t);
+    ctx.clearRect(0, 0, W, H);
     ctx.save();
     if (shake) ctx.translate(rand(-shake, shake), rand(-shake, shake));
-    drawBackground(t);
     drawFire();
     drawCauldron(t);
     drawIngredients();
@@ -857,6 +818,55 @@
     drawFloaters();
     drawNext();
     ctx.restore();
+  }
+
+  // ---- The night sky, drawn behind the whole page ----
+  const sky = $('sky');
+  const skyCtx = sky.getContext('2d');
+  const skyStars = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), r: rand(0.5, 1.7), p: Math.random() * TAU }));
+
+  function resizeSky() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    sky.width = Math.round(innerWidth * dpr);
+    sky.height = Math.round(innerHeight * dpr);
+    skyCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function drawSky(t) {
+    const w = innerWidth, h = innerHeight;
+    const g = skyCtx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#0d0716');
+    g.addColorStop(0.6, '#1e1030');
+    g.addColorStop(1, '#120a1c');
+    skyCtx.fillStyle = g;
+    skyCtx.fillRect(0, 0, w, h);
+
+    skyCtx.fillStyle = '#e9dcff';
+    for (const s of skyStars) {
+      skyCtx.globalAlpha = 0.35 + 0.35 * Math.sin(t * 1.5 + s.p);
+      skyCtx.beginPath();
+      skyCtx.arc(s.x * w, s.y * h, s.r, 0, TAU);
+      skyCtx.fill();
+    }
+    skyCtx.globalAlpha = 1;
+
+    // a crescent moon: a full moon with a bite clipped out of it
+    const mx = Math.max(60, w * 0.16), my = Math.max(110, h * 0.17);
+    const glow = skyCtx.createRadialGradient(mx, my, 10, mx, my, 80);
+    glow.addColorStop(0, 'rgba(255, 240, 200, 0.22)');
+    glow.addColorStop(1, 'rgba(255, 240, 200, 0)');
+    skyCtx.fillStyle = glow;
+    skyCtx.fillRect(mx - 80, my - 80, 160, 160);
+    skyCtx.save();
+    skyCtx.beginPath();
+    skyCtx.rect(0, 0, w, h);
+    skyCtx.arc(mx + 11, my - 6, 21, 0, TAU, true);
+    skyCtx.clip('evenodd');
+    skyCtx.fillStyle = '#f3e7c4';
+    skyCtx.beginPath();
+    skyCtx.arc(mx, my, 24, 0, TAU);
+    skyCtx.fill();
+    skyCtx.restore();
   }
 
   // ---- HUD ----
@@ -947,7 +957,9 @@
 
   // ---- Start ----
   new ResizeObserver(resize).observe(stage);
+  window.addEventListener('resize', resizeSky);
   resize();
+  resizeSky();
   renderGrimoire();
   updateHud();
   if (AUTOPLAY) newGame();
