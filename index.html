@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Witch's Brew</title>
+  <meta name="description" content="Drop spooky ingredients into the cauldron. Two of a kind brew into something bigger.">
+  <meta name="theme-color" content="#120a1c">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Creepster&family=Grenze:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hud">
+    <h1>Witch's Brew</h1>
+    <div class="scores">
+      <div class="stat"><span class="label">Score</span><span id="score">0</span></div>
+      <div class="stat"><span class="label">Best</span><span id="best">0</span></div>
+    </div>
+  </header>
+
+  <main id="stage">
+    <canvas id="game" aria-label="The cauldron. Move to aim, tap or click to drop."></canvas>
+
+    <div id="title-panel" class="panel">
+      <div class="card">
+        <h2>Witch's Brew</h2>
+        <p>Drop ingredients into the cauldron. Two of the same brew into something bigger.</p>
+        <p>Don't let the brew rise over the rim!</p>
+        <p class="hint">🥄 <b>Stir</b> swirls everything around, but you only get a few.<br>Brewing a 💀 or bigger earns one back.</p>
+        <button id="start-btn" class="big-btn">Start brewing</button>
+        <p class="keys">Keyboard: ← → aim · Space drop · S stir</p>
+      </div>
+    </div>
+
+    <div id="over-panel" class="panel hidden">
+      <div class="card">
+        <h2>It boiled over!</h2>
+        <p class="final">Score <span id="final-score">0</span></p>
+        <p id="new-best" class="new-best hidden">New best brew!</p>
+        <button id="again-btn" class="big-btn">Brew again</button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="controls">
+    <button id="stir-btn" class="stir-btn" disabled>
+      <span aria-hidden="true">🥄</span> Stir <span id="stir-charges" class="charges"></span>
+    </button>
+    <button id="mute-btn" class="icon-btn" aria-label="Sound on">🔊</button>
+    <button id="restart-btn" class="icon-btn" aria-label="Start over">↻</button>
+  </footer>
+
+  <nav id="grimoire" aria-label="Ingredient ladder"></nav>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+  <script src="ingredients.js"></script>
+  <script src="sound.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
