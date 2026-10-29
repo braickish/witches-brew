@@ -402,7 +402,6 @@
   function drop() {
     if (state !== 'playing' || now < canDropAt || stirLeft > 0) return;
     makeIngredient(current, heldX(), DROP_Y);
-    Sound.plop();
     Sound.voice(INGREDIENTS[current].sound);
     current = next;
     next = randomTier();
@@ -538,7 +537,7 @@
       addScore(points(nt) * mult, x, y);
       burst(x, y, INGREDIENTS[nt].color, 14 + nt * 3, 2 + nt * 0.35);
       Sound.merge(nt);
-      if (nt >= 5) Sound.voice(INGREDIENTS[nt].sound);
+      Sound.voice(INGREDIENTS[nt].sound);
       if (nt >= 7) shake = Math.max(shake, nt - 2);
       if (combo >= 2) floater(x, y - INGREDIENTS[nt].r - 28, `Combo ×${mult}!`, '#ff8a2a', 22);
 

@@ -10,7 +10,7 @@ they brew into the next, bigger ingredient. Don't let the brew rise over the rim
 - Move to aim, tap or click to drop. Keyboard: ← → to aim, Space to drop.
 - There's a secret: the wooden spoon leaning on the cauldron can be clicked **once** to stir everything up.
   Then it's gone, until you brew a 💀 Skull or bigger and it falls back out of the sky.
-- Every ingredient makes its own sound, and the night makes a few of its own.
+- The bat, rat, cat and ghost make their own sounds, and the night makes a few of its own.
 - Quick merges in a row are combos and score extra.
 - Everything under the surface pushes the brew up. Merging makes things smaller, which lowers it again.
 - If the brew reaches the dashed rim line, or an ingredient sits above it for too long, the brew boils over.

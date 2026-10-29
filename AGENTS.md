@@ -21,8 +21,8 @@ A drop-and-merge browser game built with a parent and two kids. It has a spooky 
 - Stir is triggered by clicking the spoon leaning on the cauldron (one use per game, deliberately undiscoverable
   except for an occasional glint). Stir is a force field: a push around the bowl's center plus a slight lift, capped speed, with a
   grace period on the boil-over check. An invisible lid at y=0 keeps things from leaving the screen.
-- Sounds: all synthesized in `sound.js`. Each ingredient names a `sound` voice in `ingredients.js` (played on
-  drop, and on merge for tier 5+). Random ambient noises (owl, howl, wind, creak, crow, whisper) every 9-18 s.
+- Sounds: all synthesized in `sound.js`. Only some ingredients name a `sound` voice in `ingredients.js` (bat, rat,
+  cat, ghost); it plays when one is dropped or brewed. Other drops are silent by request. Random ambient noises (owl, howl, wind, creak, crow, whisper) every 9-18 s.
 - Boil-over is a ~3.8 s scene before the card: brew dome over the rim, goo streams down the pot sides
   (`potSide` follows the outer bezier), puddle spreads and drowns the fire, steam + sizzle.
 - After a stir, a drawn black-cat silhouette walks across the ground and meows. The spoon falls back
