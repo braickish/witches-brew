@@ -41,6 +41,12 @@
   const SPOON_LEN = 530;
   const SPOON_BOWL = { x: WALL_R + 50, y: 648 };
   const SPOON_TOP = { x: WALL_R + 16, y: RIM_Y - 52 };
+  const SPOON_RETURN_TIER = 7;           // brewing a Skull or better brings a used spoon back
+  const SPOON_FALL = 700;                // ms for it to drop back out of the sky
+
+  // ---- Boiling over ----
+  const GROUND_Y = 666;
+  const BOIL_PANEL_DELAY = 3800;         // ms of spilling and sizzling before the "boiled over" card
 
   const params = new URLSearchParams(location.search);
   const AUTOPLAY = params.has('autoplay');      // the game plays itself (for testing)
@@ -291,7 +297,13 @@
   let next = 0;
   let aimX = CX;
   let canDropAt = 0;
-  let spoon = 'leaning';                 // 'leaning' | 'stirring' | 'gone'
+  let spoon = 'leaning';                 // 'leaning' | 'stirring' | 'gone' | 'returning'
+  let spoonReturnAt = 0;
+  let cat = null;                        // the black cat strolling past after a stir
+  let boilAt = null;                     // when the brew boiled over
+  let overPanelAt = 0;
+  let sizzled = false;
+  let nextAmbientAt = 8000;
   let stirLeft = 0;
   let stirDir = 1;
   let stirPhase = 0;
@@ -360,6 +372,11 @@
     ingredients.clear();
     mergeQueue = [];
     floaters = [];
+    particles = [];
+    cat = null;
+    boilAt = null;
+    overPanelAt = 0;
+    sizzled = false;
     score = 0;
     spoon = 'leaning';
     stirLeft = 0;
@@ -385,10 +402,11 @@
   function drop() {
     if (state !== 'playing' || now < canDropAt || stirLeft > 0) return;
     makeIngredient(current, heldX(), DROP_Y);
+    Sound.plop();
+    Sound.voice(INGREDIENTS[current].sound);
     current = next;
     next = randomTier();
     canDropAt = now + DROP_COOLDOWN;
-    Sound.plop();
   }
 
   function stir() {
@@ -427,6 +445,7 @@
       spoon = 'gone';
       const p = spoonPose();
       burst(p.bowl.x, p.bowl.y - 60, '#d7b3ff', 30, 4);
+      cat = { x: W + 70, dir: -1, phase: 0, pause: 0, meowed: false };
     }
   }
 
@@ -467,6 +486,7 @@
       for (const b of ingredients) under += submerged(b, level);
       level = FLOOR_Y - (LIQUID_AREA + under) / INSIDE_W;
     }
+    if (boilAt !== null) level = RIM_Y - 4;
     liquidY += (level - liquidY) * 0.06;
 
     // Things in the brew float a little and move slowly.
@@ -518,6 +538,7 @@
       addScore(points(nt) * mult, x, y);
       burst(x, y, INGREDIENTS[nt].color, 14 + nt * 3, 2 + nt * 0.35);
       Sound.merge(nt);
+      if (nt >= 5) Sound.voice(INGREDIENTS[nt].sound);
       if (nt >= 7) shake = Math.max(shake, nt - 2);
       if (combo >= 2) floater(x, y - INGREDIENTS[nt].r - 28, `Combo ×${mult}!`, '#ff8a2a', 22);
 
@@ -527,6 +548,12 @@
         renderGrimoire();
         floater(x, y - INGREDIENTS[nt].r - 6, `New: ${INGREDIENTS[nt].name}!`, '#b6ff7a', 24);
         Sound.discover();
+      }
+
+      if (nt >= SPOON_RETURN_TIER && spoon === 'gone') {
+        spoon = 'returning';
+        spoonReturnAt = now;
+        floater(SPOON_BOWL.x - 60, RIM_Y - 70, 'The spoon returns!', '#ffd27a', 22);
       }
     }
     mergeQueue = [];
@@ -567,15 +594,66 @@
       best = score;
       save('brew-best', best);
     }
-    for (let x = WALL_L; x <= WALL_R; x += 12) {
-      particles.push({ x, y: RIM_Y, vx: rand(-1.5, 1.5), vy: rand(-4, -1), g: 0.12, drag: 0.98, life: 1200, max: 1200, size: rand(3, 7), color: '#9dff6a' });
-    }
+    boilAt = now;
+    overPanelAt = now + BOIL_PANEL_DELAY;
+    shake = 8;
+    Sound.boilOver();
     $('final-score').textContent = score;
     $('new-best').classList.toggle('hidden', !isBest);
+    updateHud();
+  }
+
+  // After the spill has played out, show the card.
+  function showOverPanel() {
+    overPanelAt = 0;
     overPanel.classList.remove('hidden');
     Sound.over();
-    updateHud();
     if (AUTOPLAY) setTimeout(newGame, 2500);
+  }
+
+  // ---- The boil-over scene ----
+  // The brew surges up, runs down both sides of the pot, pools on the ground and puts out the fire.
+  const boilTime = () => (boilAt === null ? -1 : now - boilAt);
+  const fireStrength = () => (boilAt === null ? 1 : 1 - clamp((boilTime() - 1900) / 700, 0, 1));
+  const spillLength = () => clamp((boilTime() - 300) / 1100, 0, 1);
+  const puddleSpread = () => clamp((boilTime() - 1100) / 1300, 0, 1);
+
+  // A point down the outside of the pot, from the rim (t = 0) to its bottom corner (t = 1).
+  function potSide(t, side) {
+    const u = 1 - t;
+    const pts = [[WALL_L - 14, RIM_Y], [WALL_L - 48, RIM_Y + 100], [WALL_L - 44, FLOOR_Y - 40], [WALL_L - 8, FLOOR_Y + 18]];
+    const x = u * u * u * pts[0][0] + 3 * u * u * t * pts[1][0] + 3 * u * t * t * pts[2][0] + t * t * t * pts[3][0];
+    const y = u * u * u * pts[0][1] + 3 * u * u * t * pts[1][1] + 3 * u * t * t * pts[2][1] + t * t * t * pts[3][1];
+    return side < 0 ? { x: x - 4, y } : { x: W - x + 4, y };
+  }
+
+  function updateBoil() {
+    const bt = boilTime();
+    if (bt < 0) return;
+    // goo spurting over the rim
+    if (bt < 2400) {
+      for (const side of [-1, 1]) {
+        if (Math.random() < 0.5) {
+          const x = side < 0 ? WALL_L - 10 : WALL_R + 10;
+          particles.push({ x, y: RIM_Y - 6, vx: side * rand(0.5, 2.2), vy: rand(-3, -0.5), g: 0.22, drag: 0.99, life: 2000, max: 2000, size: rand(4, 9), goo: true });
+        }
+      }
+    }
+    // drips falling off the bottom of the pot into the fire
+    if (spillLength() >= 1 && bt < 3000 && Math.random() < 0.35) {
+      const x = Math.random() < 0.5 ? potSide(1, -1).x + rand(0, 140) : potSide(1, 1).x - rand(0, 140);
+      particles.push({ x, y: FLOOR_Y + 24, vx: 0, vy: rand(0, 1), g: 0.25, drag: 1, life: 2000, max: 2000, size: rand(3, 6), goo: true });
+    }
+    // steam once the fire's drowned
+    if (bt > 1900 && bt < 4200 && Math.random() < 0.4) {
+      const life = rand(1400, 2400);
+      particles.push({ x: CX + rand(-110, 110), y: GROUND_Y - rand(0, 20), vx: rand(-0.3, 0.3), vy: rand(-1.2, -0.6), g: 0, drag: 0.995, life, max: life, size: rand(10, 22), steam: true });
+    }
+    if (bt > 1900 && !sizzled) {
+      sizzled = true;
+      Sound.sizzle();
+    }
+    if (bt < 2600 && Math.random() < 0.3) bubbles.push({ x: rand(WALL_L + 20, WALL_R - 20), y: FLOOR_Y - rand(5, 60), r: rand(4, 10), vy: rand(-3, -1.5), wob: 0 });
   }
 
   // ---- Effects ----
@@ -601,7 +679,7 @@
     const t = now / 1000;
 
     // embers drifting up from the fire
-    if (Math.random() < 0.15) {
+    if (Math.random() < 0.15 * fireStrength()) {
       particles.push({ x: CX + rand(-90, 90), y: 640, vx: rand(-0.6, 0.6), vy: rand(-2.6, -1.6), g: 0, drag: 0.99, life: 700, max: 700, size: rand(1.5, 2.5), color: '#ffd27a', fire: true });
     }
 
@@ -630,8 +708,30 @@
       p.vx *= p.drag;
       p.vy *= p.drag;
       p.life -= STEP;
+      if (p.goo && p.y >= GROUND_Y) p.life = 0;
     }
     particles = particles.filter((p) => p.life > 0);
+
+    if (cat) {
+      if (cat.pause > 0) {
+        cat.pause--;
+      } else {
+        cat.x += cat.dir * 1.6;
+        cat.phase += 0.2;
+      }
+      if (!cat.meowed && cat.x < CX + 60) {
+        cat.meowed = true;
+        cat.pause = 70;
+        Sound.voice('meow');
+        floater(cat.x, GROUND_Y - 75, 'meow~', '#e9dcff', 20);
+      }
+      if (cat.x < -80) cat = null;
+    }
+
+    if (Sound.running && now >= nextAmbientAt) {
+      if (state !== 'over') Sound.ambient();
+      nextAmbientAt = now + rand(9000, 18000);
+    }
 
     for (const f of floaters) {
       f.y -= 0.6;
@@ -662,10 +762,18 @@
       }
     }
 
+    if (spoon === 'returning' && now - spoonReturnAt >= SPOON_FALL) {
+      spoon = 'leaning';
+      Sound.clack();
+      burst(SPOON_BOWL.x, SPOON_BOWL.y - 10, '#ffd27a', 16, 3);
+    }
+
     updateLiquid();
     Engine.update(engine, STEP);
     processMerges();
     if (state === 'playing') checkOverflow();
+    updateBoil();
+    if (overPanelAt && now >= overPanelAt) showOverPanel();
     updateEffects();
   }
 
@@ -812,11 +920,13 @@
 
     const layers = [[1, '#d9361a'], [0.68, '#ff8a1f'], [0.4, '#ffd04a']];
     const base = 664;
+    const strength = fireStrength();
     for (const [k, color] of layers) {
       const shapesOf = FLAMES.map((f) => {
         const flick = 0.8 + 0.2 * Math.sin(t * f.speed + f.phase) + 0.1 * Math.sin(t * f.speed * 2.3 + f.phase * 2);
-        return [f.x, f.w * (0.45 + 0.55 * k), f.h * k * flick, Math.sin(t * 3 + f.phase) * 7 * k];
+        return [f.x, f.w * (0.45 + 0.55 * k) * Math.sqrt(strength), f.h * k * flick * strength, Math.sin(t * 3 + f.phase) * 7 * k];
       });
+      if (strength <= 0) break;
       if (k === 1) {
         ctx.strokeStyle = '#2a0b04';
         ctx.lineWidth = 4;
@@ -894,6 +1004,8 @@
     surfacePath(t);
     ctx.fillStyle = 'rgba(40, 150, 50, 0.18)';
     ctx.fill();
+    ctx.beginPath();
+    for (let x = WALL_L; x <= WALL_R; x += 8) ctx.lineTo(x, surfaceY(x, t));
     ctx.strokeStyle = INK;
     ctx.lineWidth = 5;
     ctx.stroke();
@@ -1003,6 +1115,11 @@
   // Where the spoon is: leaning on the pot, or swirling through the brew.
   function spoonPose() {
     const lean = { bowl: SPOON_BOWL, top: SPOON_TOP };
+    if (spoon === 'returning') {
+      const k = clamp((now - spoonReturnAt) / SPOON_FALL, 0, 1);
+      const drop = -760 * (1 - k * k);
+      return { bowl: { x: lean.bowl.x, y: lean.bowl.y + drop }, top: { x: lean.top.x, y: lean.top.y + drop } };
+    }
     if (spoon !== 'stirring') return lean;
     const tip = { x: CX + Math.cos(stirPhase) * 130, y: STIR_CENTER_Y + 10 + Math.sin(stirPhase) * 35 };
     const top = { x: CX + Math.cos(stirPhase) * 50 + 70, y: 20 };
@@ -1049,9 +1166,140 @@
     return Math.hypot(x - lerp(ax, bx, t), y - lerp(ay, by, t)) < 22;
   }
 
+  // Goo is drawn in two passes, ink then green, so overlapping blobs read as one gloopy mass.
+  function drawGoo() {
+    for (const pass of [0, 1]) {
+      ctx.fillStyle = pass ? '#5fd14a' : INK;
+      for (const p of particles) {
+        if (!p.goo) continue;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size + (pass ? 0 : 2), 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawSpill(t) {
+    const bt = boilTime();
+    if (bt < 0) return;
+
+    // the brew heaving up above the rim
+    const rise = 34 * clamp(bt / 600, 0, 1) * (1 + 0.12 * Math.sin(t * 9));
+    ctx.beginPath();
+    ctx.moveTo(WALL_L - 6, RIM_Y + 6);
+    ctx.bezierCurveTo(WALL_L + 40, RIM_Y - rise * 1.6, WALL_R - 40, RIM_Y - rise * 1.6, WALL_R + 6, RIM_Y + 6);
+    ctx.closePath();
+    ctx.fillStyle = '#5fd14a';
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 3;
+    ctx.fill();
+    ctx.stroke();
+
+    // streams running down both sides
+    const len = spillLength();
+    if (len > 0) {
+      for (const [width, color] of [[17, INK], [12, '#5fd14a']]) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        for (const side of [-1, 1]) {
+          ctx.beginPath();
+          for (let i = 0; i <= 20; i++) {
+            const p = potSide((i / 20) * len, side);
+            if (i) ctx.lineTo(p.x, p.y);
+            else ctx.moveTo(p.x, p.y);
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.lineCap = 'butt';
+    }
+
+    // the puddle spreading in from both sides until it swamps the fire
+    const spread = puddleSpread();
+    if (spread > 0) {
+      for (const side of [-1, 1]) {
+        const outer = side < 0 ? WALL_L - 50 : WALL_R + 50;
+        const inner = lerp(outer, CX + side * -6, spread);
+        const x0 = Math.min(outer, inner), x1 = Math.max(outer, inner);
+        ctx.beginPath();
+        ctx.moveTo(x0, GROUND_Y + 10);
+        for (let x = x0; x <= x1; x += 6) ctx.lineTo(x, GROUND_Y - 4 - 3 * Math.sin(x * 0.08 + t * 4) - 6 * Math.sin(((x - x0) / (x1 - x0 || 1)) * Math.PI));
+        ctx.lineTo(x1, GROUND_Y + 10);
+        ctx.closePath();
+        ctx.fillStyle = '#4fbf3a';
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2.5;
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+  }
+
+  // A black cat silhouette, walking: legs swing, tail sways, eyes glow.
+  function drawCat() {
+    if (!cat) return;
+    const { x, dir } = cat;
+    const y = GROUND_Y + 2;
+    const walk = cat.pause > 0 ? 0 : Math.sin(cat.phase);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(dir, 1);                   // draw facing +x, then flip to face the way it's walking
+    ctx.strokeStyle = '#0d0a12';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 5;
+    for (const [lx, off] of [[-20, 0], [-14, Math.PI], [16, Math.PI], [22, 0]]) {
+      const swing = Math.sin(cat.phase + off) * (cat.pause > 0 ? 0 : 7);
+      ctx.beginPath();
+      ctx.moveTo(lx, -20);
+      ctx.lineTo(lx + swing, -1);
+      ctx.stroke();
+    }
+    const tailSway = Math.sin(now / 300) * 8;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-26, -26);
+    ctx.bezierCurveTo(-46, -30, -44 + tailSway, -60, -32 + tailSway, -66);
+    ctx.stroke();
+    ctx.fillStyle = '#0d0a12';
+    ctx.beginPath();
+    ctx.ellipse(0, -26 + walk * 0.8, 30, 12, 0, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(30, -38, 12, 0, TAU);
+    ctx.moveTo(21, -45);
+    ctx.lineTo(22, -60);
+    ctx.lineTo(30, -49);
+    ctx.moveTo(32, -50);
+    ctx.lineTo(40, -60);
+    ctx.lineTo(41, -44);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(181, 140, 255, 0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(0, -26 + walk * 0.8, 30, 12, 0, Math.PI * 1.1, Math.PI * 1.9);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd84a';
+    for (const ex of [27, 36]) {
+      ctx.beginPath();
+      ctx.ellipse(ex, -40, 2.6, 3.4, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawParticles() {
     for (const p of particles) {
-      if (p.fire) continue;
+      if (p.fire || p.goo) continue;
+      if (p.steam) {
+        const k = p.life / p.max;
+        ctx.globalAlpha = k * 0.3;
+        ctx.fillStyle = '#e6e2ee';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * (1 + (1 - k) * 2), 0, TAU);
+        ctx.fill();
+        continue;
+      }
       const k = p.life / p.max;
       ctx.globalAlpha = k;
       if (p.ring) {
@@ -1108,8 +1356,11 @@
     drawBrewFront(t);
     ctx.drawImage(frontArt, 0, 0, W, H);
     drawRimLine();
+    drawSpill(t);
+    drawGoo();
     drawHeld();
     drawSpoon();
+    drawCat();
     drawParticles();
     drawFloaters();
     drawNext();
@@ -1361,13 +1612,19 @@
   resizeSky();
   renderGrimoire();
   updateHud();
-  if (AUTOPLAY) {
-    window.brewDebug = () => {
-      let top = FLOOR_Y, solid = 0;
-      for (const b of ingredients) { top = Math.min(top, b.bounds.min.y); solid += b.area; }
-      return { liquidY: Math.round(liquidY), pileTop: Math.round(top), n: ingredients.size, solid: Math.round(solid), state, spoon };
+  // Test hooks, only with ?autoplay or ?debug in the address.
+  if (AUTOPLAY || params.has('debug')) {
+    window.brew = {
+      stats() {
+        let top = FLOOR_Y, solid = 0;
+        for (const b of ingredients) { top = Math.min(top, b.bounds.min.y); solid += b.area; }
+        return { liquidY: Math.round(liquidY), pileTop: Math.round(top), n: ingredients.size, solid: Math.round(solid), state, spoon };
+      },
+      stir,
+      boilOver: gameOver,
+      spoonBack() { spoon = 'returning'; spoonReturnAt = now; },
     };
-    newGame();
   }
+  if (AUTOPLAY) newGame();
   requestAnimationFrame(frame);
 })();
