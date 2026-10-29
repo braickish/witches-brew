@@ -56,8 +56,8 @@ body {
   font-size: clamp(26px, 7vw, 36px);
   letter-spacing: 1px;
   margin: 0;
-  color: var(--brew);
-  text-shadow: 0 0 12px rgba(157, 255, 106, 0.45), 0 2px 0 #1a3d12;
+  color: #fff;
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.3), 0 2px 0 #000;
 }
 
 .byline {
@@ -95,6 +95,17 @@ body {
   min-height: 0;
   display: grid;
   place-items: center;
+}
+
+#board { position: relative; }
+
+.board-btns {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 #game {
@@ -163,45 +174,14 @@ button {
 
 .big-btn:active { transform: translateY(2px); }
 
-.controls {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  padding: 6px 16px;
-}
-
-.stir-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 22px;
-  font-weight: 600;
-  padding: 8px 22px;
-  border-radius: 999px;
-  border: 2px solid #6b4325;
-  background: linear-gradient(#5b3a7a, #2e1a45);
-  box-shadow: 0 0 16px rgba(181, 120, 255, 0.35);
-}
-
-.stir-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-  box-shadow: none;
-}
-
-.charges {
-  font-size: 16px;
-  letter-spacing: 3px;
-  color: var(--brew);
-}
-
 .icon-btn {
-  width: 46px;
-  height: 46px;
-  font-size: 20px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 16px;
   border-radius: 50%;
-  border: 2px solid var(--panel-edge);
-  background: var(--panel);
+  border: 1.5px solid var(--panel-edge);
+  background: rgba(28, 17, 41, 0.75);
 }
 
 #grimoire {

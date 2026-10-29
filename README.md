@@ -8,7 +8,7 @@ they brew into the next, bigger ingredient. Don't let the brew rise over the rim
 ## How to play
 
 - Move to aim, tap or click to drop. Keyboard: ← → to aim, Space to drop.
-- **Stir** (🥄 button or S) swirls everything in the cauldron. You get 3; brewing a 💀 or bigger earns one back.
+- There's a secret: the wooden spoon leaning on the cauldron can be clicked **once** to stir everything up. Then it's gone.
 - Quick merges in a row are combos and score extra.
 - Everything under the surface pushes the brew up. Merging makes things smaller, which lowers it again.
 - If the brew reaches the dashed rim line, or an ingredient sits above it for too long, the brew boils over.
@@ -17,8 +17,8 @@ they brew into the next, bigger ingredient. Don't let the brew rise over the rim
 
 ## The ingredient ladder
 
-👁️ Eye of Newt → 🕷️ Spider → 🦇 Bat Wing → 🍄 Toadstool → 🐸 Toad → 🦴 Bone → 💀 Skull →
-🎃 Jack-o'-Lantern → 🔮 Crystal Ball → 👻 Ghost → 🌕 Blood Moon
+👁️ Eye of Newt → 🪱 Worm → 🕷️ Spider → 🦇 Bat → 🍄 Toadstool → 🐀 Rat → 🐍 Snake → 💀 Skull →
+🐈‍⬛ Black Cat → 👻 Ghost → 🌕 Blood Moon
 
 Two Blood Moons complete the potion for a big bonus.
 

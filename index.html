@@ -26,16 +26,22 @@
   </header>
 
   <main id="stage">
-    <canvas id="game" aria-label="The cauldron. Move to aim, tap or click to drop."></canvas>
+    <div id="board">
+      <canvas id="game" aria-label="The cauldron. Move to aim, tap or click to drop."></canvas>
+      <div class="board-btns">
+        <button id="mute-btn" class="icon-btn" aria-label="Sound on">🔊</button>
+        <button id="restart-btn" class="icon-btn" aria-label="Start over">↻</button>
+      </div>
+    </div>
 
     <div id="title-panel" class="panel">
       <div class="card">
         <h2>Witch's Brew</h2>
         <p>Drop ingredients into the cauldron. Two of the same brew into something bigger.</p>
         <p>Everything you add makes the brew rise. Don't let it boil over the rim!</p>
-        <p class="hint">🥄 <b>Stir</b> swirls everything around, but you only get a few.<br>Brewing a 💀 or bigger earns one back.</p>
+        <p class="hint">A wise witch keeps one trick close at hand…</p>
         <button id="start-btn" class="big-btn">Start brewing</button>
-        <p class="keys">Keyboard: ← → aim · Space drop · S stir</p>
+        <p class="keys">Keyboard: ← → aim · Space drop</p>
       </div>
     </div>
 
@@ -49,17 +55,10 @@
     </div>
   </main>
 
-  <footer class="controls">
-    <button id="stir-btn" class="stir-btn" disabled>
-      <span aria-hidden="true">🥄</span> Stir <span id="stir-charges" class="charges"></span>
-    </button>
-    <button id="mute-btn" class="icon-btn" aria-label="Sound on">🔊</button>
-    <button id="restart-btn" class="icon-btn" aria-label="Start over">↻</button>
-  </footer>
-
   <nav id="grimoire" aria-label="Ingredient ladder"></nav>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
   <script src="ingredients.js"></script>
   <script src="sound.js"></script>
   <script src="game.js"></script>
