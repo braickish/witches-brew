@@ -10,7 +10,10 @@ they brew into the next, bigger ingredient. Don't let the brew rise over the rim
 - Move to aim, tap or click to drop. Keyboard: ← → to aim, Space to drop.
 - **Stir** (🥄 button or S) swirls everything in the cauldron. You get 3; brewing a 💀 or bigger earns one back.
 - Quick merges in a row are combos and score extra.
-- Anything that sits above the dashed rim line for too long boils the brew over.
+- Everything under the surface pushes the brew up. Merging makes things smaller, which lowers it again.
+- If the brew reaches the dashed rim line, or an ingredient sits above it for too long, the brew boils over.
+- Ingredients are their real shapes, not circles, so they tip, wedge, and leave gaps.
+- Bigger ingredients start coming up more often as your score climbs.
 
 ## The ingredient ladder
 
@@ -23,8 +26,9 @@ Two Blood Moons complete the potion for a big bonus.
 
 Everything about the ingredients lives in [`ingredients.js`](ingredients.js): names, emoji, sizes and colors.
 
-To use your own drawings, put a square PNG in `assets/` (e.g. `assets/spider.png`) and add
-`image: 'assets/spider.png'` to that ingredient. It's cropped to a circle and replaces the emoji.
+To use your own drawings, cut them out on a transparent background, save as a PNG in `assets/`
+(e.g. `assets/spider.png`), and add `image: 'assets/spider.png'` to that ingredient. The game traces
+the drawing's outline to make its shape.
 
 ## Running locally
 
@@ -32,5 +36,7 @@ It's a static site with no build step:
 
 ```sh
 python3 -m http.server 8765
-# open http://localhost:8765/   (add ?autoplay to watch it play itself)
+# open http://localhost:8765/
+#   ?autoplay   watch it play itself
+#   ?shapes     outline each ingredient's physics shape
 ```

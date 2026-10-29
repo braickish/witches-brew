@@ -60,6 +60,13 @@ body {
   text-shadow: 0 0 12px rgba(157, 255, 106, 0.45), 0 2px 0 #1a3d12;
 }
 
+.byline {
+  margin: 2px 0 0;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
 .scores { display: flex; gap: 14px; }
 
 .stat {

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { Engine, Bodies, Body, Composite, Events } = Matter;
+  const { Engine, Body, Composite, Events, Vertices } = Matter;
   const TAU = Math.PI * 2;
 
   // ---- Layout, in game units. The canvas is scaled to fit the screen. ----
@@ -11,16 +11,17 @@
   const CX = W / 2;
   const WALL_L = 45;                     // inside edges of the cauldron
   const WALL_R = 435;
+  const INSIDE_W = WALL_R - WALL_L;
   const RIM_Y = 170;                     // the boil-over line
   const FLOOR_Y = 555;                   // the flat bottom of the cauldron
-  const LIQUID_Y = 290;
   const DROP_Y = 82;
   const WALL_T = 40;
 
   // ---- Rules ----
   const STEP = 1000 / 60;
   const DROP_COOLDOWN = 450;
-  const OVER_LIMIT = 2500;               // ms an ingredient may sit above the rim
+  const OVER_LIMIT = 2000;               // ms an ingredient may sit above the rim
+  const LIQUID_LIMIT = 1500;             // ms the brew may sit at the rim
   const STIR_TIME = 1700;
   const STIR_MAX = 3;
   const STIR_REWARD_TIER = 6;            // brewing a Skull or better earns a stir back
@@ -28,7 +29,17 @@
   const STIR_MAX_SPEED = 9;
   const LAST = INGREDIENTS.length - 1;
 
-  const AUTOPLAY = new URLSearchParams(location.search).has('autoplay');
+  // ---- The brew ----
+  // There's a fixed amount of liquid. Anything under the surface pushes it up,
+  // so the fuller the cauldron, the higher the brew.
+  const LIQUID_START_Y = 400;
+  const LIQUID_AREA = INSIDE_W * (FLOOR_Y - LIQUID_START_Y);
+  const BUOYANCY = 0.35;                 // how much of gravity the brew cancels when fully under
+  const BREW_DRAG = 0.025;
+
+  const params = new URLSearchParams(location.search);
+  const AUTOPLAY = params.has('autoplay');      // the game plays itself (for testing)
+  const SHOW_SHAPES = params.has('shapes');     // outline each ingredient's physics shape
 
   // ---- DOM ----
   const $ = (id) => document.getElementById(id);
@@ -60,89 +71,159 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
-  // ---- Ingredient sprites, drawn once and reused every frame ----
+  // ---- Ingredient shapes ----
+  // Each ingredient's physics shape is traced from its picture: the outline of its
+  // visible pixels, shrink-wrapped (a convex hull) and trimmed to a few corners.
+  const TRACE = 160;                     // px canvas the picture is traced on
+  const TRACE_PX = 100;                  // px size of the picture inside it
+  const MAX_CORNERS = 14;
   const SPRITE_RES = 3;
-  const SPRITE_PAD = 2;
 
-  function shade(hex, amt) {
-    const n = parseInt(hex.slice(1), 16);
-    const target = amt < 0 ? 0 : 255;
-    const a = Math.abs(amt);
-    const ch = (s) => Math.round(((n >> s) & 255) * (1 - a) + target * a);
-    return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
-  }
-
-  function makeSprite(ing, picture) {
-    const r = ing.r;
-    const size = Math.ceil((r + SPRITE_PAD) * 2 * SPRITE_RES);
-    const c = document.createElement('canvas');
-    c.width = c.height = size;
-    const g = c.getContext('2d');
-    g.scale(SPRITE_RES, SPRITE_RES);
-    g.translate(r + SPRITE_PAD, r + SPRITE_PAD);
-
-    const grad = g.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
-    grad.addColorStop(0, shade(ing.color, 0.35));
-    grad.addColorStop(0.6, ing.color);
-    grad.addColorStop(1, shade(ing.color, -0.5));
-    g.beginPath();
-    g.arc(0, 0, r, 0, TAU);
-    g.fillStyle = grad;
-    g.fill();
-
+  function drawPicture(g, ing, picture, center, px) {
     if (picture) {
-      g.save();
-      g.beginPath();
-      g.arc(0, 0, r * 0.94, 0, TAU);
-      g.clip();
-      const s = Math.max((2 * r) / picture.width, (2 * r) / picture.height);
-      g.drawImage(picture, -picture.width * s / 2, -picture.height * s / 2, picture.width * s, picture.height * s);
-      g.restore();
+      const s = px / Math.max(picture.width, picture.height);
+      g.drawImage(picture, center - (picture.width * s) / 2, center - (picture.height * s) / 2, picture.width * s, picture.height * s);
     } else {
-      const glyph = emojiCanvas(ing, r * 1.25);
-      g.drawImage(glyph, -glyph.width / SPRITE_RES / 2, -glyph.height / SPRITE_RES / 2, glyph.width / SPRITE_RES, glyph.height / SPRITE_RES);
+      g.font = `${px}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(ing.emoji, center, center + px * 0.08);
     }
-
-    // a little shine
-    g.beginPath();
-    g.ellipse(-r * 0.35, -r * 0.5, r * 0.32, r * 0.16, -0.5, 0, TAU);
-    g.fillStyle = 'rgba(255, 255, 255, 0.22)';
-    g.fill();
-
-    g.beginPath();
-    g.arc(0, 0, r, 0, TAU);
-    g.lineWidth = Math.max(1.5, r * 0.06);
-    g.strokeStyle = 'rgba(0, 0, 0, 0.55)';
-    g.stroke();
-    return c;
   }
 
-  function emojiCanvas(ing, px) {
-    const size = Math.ceil(px * 1.5 * SPRITE_RES);
+  function convexHull(points) {
+    const pts = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const lower = [];
+    for (const p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    const upper = [];
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  }
+
+  // Drop the corners that matter least until only a few are left.
+  function simplify(hull) {
+    const pts = hull.slice();
+    const tri = (a, b, c) => Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+    while (pts.length > MAX_CORNERS) {
+      let best = 0;
+      let bestArea = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        const a = tri(pts[(i - 1 + pts.length) % pts.length], pts[i], pts[(i + 1) % pts.length]);
+        if (a < bestArea) {
+          bestArea = a;
+          best = i;
+        }
+      }
+      pts.splice(best, 1);
+    }
+    return pts;
+  }
+
+  function polygonStats(pts) {
+    let area = 0, cx = 0, cy = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const c = a.x * b.y - b.x * a.y;
+      area += c;
+      cx += (a.x + b.x) * c;
+      cy += (a.y + b.y) * c;
+    }
+    area /= 2;
+    return { area: Math.abs(area), cx: cx / (6 * area), cy: cy / (6 * area) };
+  }
+
+  function traceOutline(ing, picture) {
     const c = document.createElement('canvas');
-    c.width = c.height = size;
-    const g = c.getContext('2d');
-    g.font = `${px * SPRITE_RES}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(ing.emoji, size / 2, size / 2 + px * 0.08 * SPRITE_RES);
-    if (ing.tint) {
-      g.globalCompositeOperation = 'source-atop';
-      g.globalAlpha = 0.55;
-      g.fillStyle = ing.tint;
-      g.fillRect(0, 0, size, size);
+    c.width = c.height = TRACE;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    drawPicture(g, ing, picture, TRACE / 2, TRACE_PX);
+    let data;
+    try {
+      data = g.getImageData(0, 0, TRACE, TRACE).data;
+    } catch {
+      return null;
     }
-    return c;
+    const pts = [];
+    for (let y = 0; y < TRACE; y++) {
+      let left = -1, right = -1;
+      for (let x = 0; x < TRACE; x++) {
+        if (data[(y * TRACE + x) * 4 + 3] > 64) {
+          if (left < 0) left = x;
+          right = x;
+        }
+      }
+      if (left < 0) continue;
+      const y0 = y - TRACE / 2;
+      const l = left - TRACE / 2, r = right + 1 - TRACE / 2;
+      pts.push({ x: l, y: y0 }, { x: l, y: y0 + 1 }, { x: r, y: y0 }, { x: r, y: y0 + 1 });
+    }
+    return pts.length >= 6 ? simplify(convexHull(pts)) : null;
   }
 
-  const sprites = INGREDIENTS.map((ing) => makeSprite(ing));
+  function circleOutline(radius) {
+    return Array.from({ length: 12 }, (_, i) => ({ x: Math.cos((i / 12) * TAU) * radius, y: Math.sin((i / 12) * TAU) * radius }));
+  }
+
+  function buildShape(ing, picture) {
+    const hull = traceOutline(ing, picture) || circleOutline(TRACE_PX * 0.45);
+    const { area, cx, cy } = polygonStats(hull);
+    // Size it so its area matches a circle of radius r, without letting long shapes get too long.
+    const reach = Math.max(...hull.map((p) => Math.hypot(p.x - cx, p.y - cy)));
+    const s = Math.min(Math.sqrt((Math.PI * ing.r * ing.r) / area), (ing.r * 1.4) / reach);
+    const verts = hull.map((p) => ({ x: (p.x - cx) * s, y: (p.y - cy) * s }));
+
+    // The picture, with a glow in the ingredient's color so it stands out in the dark.
+    const box = TRACE * s;
+    const size = Math.ceil(box * SPRITE_RES);
+    const glyph = document.createElement('canvas');
+    glyph.width = glyph.height = size;
+    const gg = glyph.getContext('2d');
+    drawPicture(gg, ing, picture, size / 2, TRACE_PX * s * SPRITE_RES);
+    if (ing.tint) {
+      gg.globalCompositeOperation = 'source-atop';
+      gg.globalAlpha = 0.55;
+      gg.fillStyle = ing.tint;
+      gg.fillRect(0, 0, size, size);
+    }
+    const sprite = document.createElement('canvas');
+    sprite.width = sprite.height = size;
+    const g = sprite.getContext('2d');
+    g.shadowColor = ing.color;
+    g.shadowBlur = 7 * SPRITE_RES;
+    g.drawImage(glyph, 0, 0);
+    g.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    g.shadowBlur = 2 * SPRITE_RES;
+    g.drawImage(glyph, 0, 0);
+
+    const xs = verts.map((p) => p.x), ys = verts.map((p) => p.y);
+    return {
+      verts,
+      sprite,
+      box,
+      offX: -cx * s,                     // where the picture's center sits relative to the body
+      offY: -cy * s,
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      maxY: Math.max(...ys),
+    };
+  }
+
+  const shapes = INGREDIENTS.map((ing) => buildShape(ing));
 
   // Swap in hand-drawn pictures once they load.
   INGREDIENTS.forEach((ing, i) => {
     if (!ing.image) return;
     const img = new Image();
     img.onload = () => {
-      sprites[i] = makeSprite(ing, img);
+      shapes[i] = buildShape(ing, img);
       renderGrimoire();
     };
     img.src = ing.image;
@@ -153,15 +234,16 @@
   engine.gravity.y = 1;
 
   function buildCauldron() {
-    const opts = { isStatic: true, friction: 0.2, restitution: 0.1, label: 'wall' };
+    const opts = { isStatic: true, friction: 0.3, restitution: 0.1, label: 'wall' };
+    const rect = (x, y, w, h) => Matter.Bodies.rectangle(x, y, w, h, opts);
     const top = -100;
     const bottom = FLOOR_Y + WALL_T;
     return [
-      Bodies.rectangle(WALL_L - WALL_T / 2, (top + bottom) / 2, WALL_T, bottom - top, opts),
-      Bodies.rectangle(WALL_R + WALL_T / 2, (top + bottom) / 2, WALL_T, bottom - top, opts),
-      Bodies.rectangle(CX, FLOOR_Y + WALL_T / 2, WALL_R - WALL_L + WALL_T * 2, WALL_T, opts),
+      rect(WALL_L - WALL_T / 2, (top + bottom) / 2, WALL_T, bottom - top),
+      rect(WALL_R + WALL_T / 2, (top + bottom) / 2, WALL_T, bottom - top),
+      rect(CX, FLOOR_Y + WALL_T / 2, INSIDE_W + WALL_T * 2, WALL_T),
       // An invisible lid above the screen so nothing can fly out.
-      Bodies.rectangle(CX, -WALL_T / 2, W + WALL_T * 2, WALL_T, opts),
+      rect(CX, -WALL_T / 2, W + WALL_T * 2, WALL_T),
     ];
   }
 
@@ -187,36 +269,44 @@
   let stirDir = 1;
   let stirPhase = 0;
   let graceUntil = 0;
+  let liquidY = LIQUID_START_Y;
+  let liquidOverSince = null;
   let danger = 0;
   let shake = 0;
   let combo = 0;
   let lastMergeAt = -1e9;
   const keys = { left: false, right: false };
 
+  // Bigger ingredients come up more often as the score climbs.
   function randomTier() {
-    const total = DROP_WEIGHTS.reduce((a, b) => a + b, 0);
-    let roll = Math.random() * total;
-    for (let i = 0; i < DROP_WEIGHTS.length; i++) {
-      roll -= DROP_WEIGHTS[i];
+    const ramp = Math.min(1, score / 4000);
+    const weights = DROP_WEIGHTS.map((w, i) => w * (1 + ramp * i * 0.6));
+    let roll = Math.random() * weights.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < weights.length; i++) {
+      roll -= weights[i];
       if (roll < 0) return i;
     }
     return 0;
   }
 
-  function makeIngredient(tier, x, y, startR = INGREDIENTS[tier].r) {
-    const body = Bodies.circle(x, y, startR, {
-      restitution: 0.12,
-      friction: 0.25,
-      frictionStatic: 0.4,
+  // k < 1 makes it start smaller and swell up to full size.
+  function makeIngredient(tier, x, y, k = 1) {
+    const verts = shapes[tier].verts.map((p) => ({ x: p.x * k, y: p.y * k }));
+    const body = Body.create({
+      position: { x, y },
+      vertices: Vertices.clockwiseSort(verts),
+      restitution: 0.1,
+      friction: 0.4,
+      frictionStatic: 0.6,
       frictionAir: 0.008,
       density: 0.0012,
       label: 'ingredient',
     });
     body.tier = tier;
+    body.k = k;
     body.born = now;
     body.overSince = null;
     body.merging = false;
-    body.targetR = INGREDIENTS[tier].r;
     Composite.add(engine.world, body);
     ingredients.add(body);
     return body;
@@ -248,6 +338,8 @@
     stirLeft = 0;
     combo = 0;
     danger = 0;
+    liquidY = LIQUID_START_Y;
+    liquidOverSince = null;
     current = randomTier();
     next = randomTier();
     canDropAt = now + 250;
@@ -258,12 +350,14 @@
     updateHud();
   }
 
+  function heldX() {
+    const sh = shapes[current];
+    return clamp(aimX, WALL_L - sh.minX + 1, WALL_R - sh.maxX - 1);
+  }
+
   function drop() {
     if (state !== 'playing' || now < canDropAt || stirLeft > 0) return;
-    const r = INGREDIENTS[current].r;
-    const x = clamp(aimX, WALL_L + r + 1, WALL_R - r - 1);
-    const body = makeIngredient(current, x, DROP_Y);
-    Body.setAngle(body, rand(-0.3, 0.3));
+    makeIngredient(current, heldX(), DROP_Y);
     current = next;
     next = randomTier();
     canDropAt = now + DROP_COOLDOWN;
@@ -281,7 +375,7 @@
     updateHud();
   }
 
-  // The stir pushes everything around the middle of the bowl and lifts it a little,
+  // The stir pushes everything around the middle of the cauldron and lifts it a little,
   // so the pile churns and new neighbours meet.
   function applyStir() {
     const env = Math.sin(Math.PI * (1 - stirLeft / STIR_TIME));
@@ -295,6 +389,7 @@
         x: (-dy / d) * stirDir * 0.0013 * m + rand(-0.0002, 0.0002) * m,
         y: (dx / d) * stirDir * 0.0013 * m - 0.0006 * m,
       });
+      Body.setAngularVelocity(b, b.angularVelocity + rand(-0.01, 0.01) * env);
       const v = b.velocity;
       const speed = Math.hypot(v.x, v.y);
       if (speed > STIR_MAX_SPEED) Body.setVelocity(b, { x: (v.x / speed) * STIR_MAX_SPEED, y: (v.y / speed) * STIR_MAX_SPEED });
@@ -303,6 +398,56 @@
     if (stirLeft <= 0) {
       stirLeft = 0;
       updateHud();
+    }
+  }
+
+  // ---- The brew level ----
+  // Area of the part of a shape that's below the surface line.
+  function areaBelow(verts, level) {
+    let area = 0;
+    let first = null, prev = null;
+    const add = (p) => {
+      if (prev) area += prev.x * p.y - p.x * prev.y;
+      else first = p;
+      prev = p;
+    };
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i], b = verts[(i + 1) % verts.length];
+      const aIn = a.y >= level, bIn = b.y >= level;
+      if (aIn) add(a);
+      if (aIn !== bIn) {
+        const t = (level - a.y) / (b.y - a.y);
+        add({ x: a.x + (b.x - a.x) * t, y: level });
+      }
+    }
+    if (prev && first) area += prev.x * first.y - first.x * prev.y;
+    return Math.abs(area) / 2;
+  }
+
+  function submerged(b, level) {
+    if (b.bounds.max.y <= level) return 0;
+    if (b.bounds.min.y >= level) return b.area;
+    return areaBelow(b.vertices, level);
+  }
+
+  function updateLiquid() {
+    // The level depends on how much is under it, which depends on the level, so settle it in a few passes.
+    let level = liquidY;
+    for (let i = 0; i < 4; i++) {
+      let under = 0;
+      for (const b of ingredients) under += submerged(b, level);
+      level = FLOOR_Y - (LIQUID_AREA + under) / INSIDE_W;
+    }
+    liquidY += (level - liquidY) * 0.06;
+
+    // Things in the brew float a little and move slowly.
+    for (const b of ingredients) {
+      const frac = submerged(b, liquidY) / b.area;
+      if (!frac) continue;
+      Body.applyForce(b, b.position, { x: 0, y: -b.mass * 0.001 * BUOYANCY * frac });
+      const drag = 1 - BREW_DRAG * frac;
+      Body.setVelocity(b, { x: b.velocity.x * drag, y: b.velocity.y * drag });
+      Body.setAngularVelocity(b, b.angularVelocity * drag);
     }
   }
 
@@ -333,10 +478,10 @@
       }
 
       const nt = tier + 1;
-      // The new ingredient starts at the old size and swells up, so it doesn't explode the pile.
-      const body = makeIngredient(nt, x, y, INGREDIENTS[tier].r);
+      // The new ingredient starts at the old size and swells up, so it doesn't blow the pile apart.
+      const body = makeIngredient(nt, x, y, INGREDIENTS[tier].r / INGREDIENTS[nt].r);
       body.born = now - 500;
-      Body.setAngle(body, (a.angle + b.angle) / 2);
+      Body.setAngle(body, a.angle);
       Body.setVelocity(body, {
         x: (a.velocity.x + b.velocity.x) / 2,
         y: Math.min(0, (a.velocity.y + b.velocity.y) / 2) - 1.5,
@@ -370,23 +515,26 @@
     updateHud();
   }
 
+  // Boil-over happens when an ingredient stays above the rim, or the brew itself reaches it.
   function checkOverflow() {
     danger = 0;
     const calm = now < graceUntil;
     for (const b of ingredients) {
-      const over = b.position.y - b.circleRadius < RIM_Y && now - b.born > 900;
+      const over = b.bounds.min.y < RIM_Y && now - b.born > 900;
       if (!over || calm) {
         b.overSince = null;
         continue;
       }
       if (b.overSince === null) b.overSince = now;
-      const t = (now - b.overSince) / OVER_LIMIT;
-      danger = Math.max(danger, t);
-      if (t >= 1) {
-        gameOver();
-        return;
-      }
+      danger = Math.max(danger, (now - b.overSince) / OVER_LIMIT);
     }
+    if (!calm && liquidY <= RIM_Y + 2) {
+      if (liquidOverSince === null) liquidOverSince = now;
+      danger = Math.max(danger, (now - liquidOverSince) / LIQUID_LIMIT);
+    } else {
+      liquidOverSince = null;
+    }
+    if (danger >= 1) gameOver();
   }
 
   function gameOver() {
@@ -423,7 +571,7 @@
 
   function surfaceY(x, t) {
     const amp = 3 + (stirLeft > 0 ? 8 : 0);
-    return LIQUID_Y + Math.sin(x * 0.035 + t * 1.7) * amp + Math.sin(x * 0.08 - t * 2.6) * amp * 0.5;
+    return liquidY + Math.sin(x * 0.035 + t * 1.7) * amp + Math.sin(x * 0.08 - t * 2.6) * amp * 0.5;
   }
 
   function updateEffects() {
@@ -438,10 +586,11 @@
       particles.push({ x: CX + rand(-90, 90), y: 650, vx: rand(-0.8, 0.8), vy: rand(-3, -2), g: 0, drag: 0.99, life: 900, max: 900, size: rand(1.5, 2.5), color: '#ffd27a', fire: true });
     }
 
-    // bubbles rising through the brew
-    if (Math.random() < (stirLeft > 0 ? 0.6 : 0.18)) {
+    // bubbles rising through the brew, faster as it nears the rim
+    const boil = clamp((RIM_Y + 80 - liquidY) / 80, 0, 1);
+    if (Math.random() < (stirLeft > 0 ? 0.6 : 0.18 + boil * 0.5)) {
       const x = rand(WALL_L + 12, WALL_R - 12);
-      bubbles.push({ x, y: FLOOR_Y - rand(10, 40), r: rand(2, 6), vy: rand(-1, -0.4), wob: Math.random() * TAU });
+      bubbles.push({ x, y: rand(Math.min(liquidY + 20, FLOOR_Y - 10), FLOOR_Y - 5), r: rand(2, 6), vy: rand(-1, -0.4), wob: Math.random() * TAU });
     }
     for (const b of bubbles) {
       b.y += b.vy;
@@ -487,12 +636,14 @@
     if (state === 'playing' && stirLeft > 0) applyStir();
 
     for (const b of ingredients) {
-      if (b.circleRadius < b.targetR - 0.01) {
-        const s = Math.min(b.targetR / b.circleRadius, 1.12);
+      if (b.k < 0.999) {
+        const s = Math.min(1 / b.k, 1.06);
         Body.scale(b, s, s);
+        b.k *= s;
       }
     }
 
+    updateLiquid();
     Engine.update(engine, STEP);
     processMerges();
     if (state === 'playing') checkOverflow();
@@ -518,7 +669,7 @@
       aimX = rand(WALL_L, WALL_R);
       drop();
     }
-    if (stirs > 0 && ingredients.size > 25 && Math.random() < 0.003) stir();
+    if (stirs > 0 && ingredients.size > 15 && Math.random() < 0.003) stir();
   }
 
   // ---- Drawing ----
@@ -571,6 +722,21 @@
     ctx.globalAlpha = 1;
   }
 
+  // The brew turns from green to angry orange as it nears the rim.
+  function brewColor(alpha) {
+    const k = clamp((RIM_Y + 70 - liquidY) / 70, 0, 1);
+    const mix = (a, b) => Math.round(a + (b - a) * k);
+    return `rgba(${mix(79, 235)}, ${mix(191, 90)}, ${mix(58, 40)}, ${alpha})`;
+  }
+
+  function surfacePath(t) {
+    ctx.beginPath();
+    ctx.moveTo(WALL_L, H);
+    for (let x = WALL_L; x <= WALL_R; x += 8) ctx.lineTo(x, surfaceY(x, t));
+    ctx.lineTo(WALL_R, H);
+    ctx.closePath();
+  }
+
   function drawCauldron(t) {
     // legs
     ctx.fillStyle = '#16131c';
@@ -605,20 +771,26 @@
     ctx.fillStyle = '#0b0710';
     ctx.fill();
     ctx.clip();
-
-    ctx.beginPath();
-    ctx.moveTo(WALL_L, H);
-    for (let x = WALL_L; x <= WALL_R; x += 8) ctx.lineTo(x, surfaceY(x, t));
-    ctx.lineTo(WALL_R, H);
-    ctx.closePath();
-    const brew = ctx.createLinearGradient(0, LIQUID_Y, 0, FLOOR_Y);
-    brew.addColorStop(0, '#4fbf3a');
-    brew.addColorStop(0.25, '#1f6b28');
+    surfacePath(t);
+    const brew = ctx.createLinearGradient(0, liquidY, 0, FLOOR_Y);
+    brew.addColorStop(0, brewColor(1));
+    brew.addColorStop(0.3, '#1f6b28');
     brew.addColorStop(1, '#0b2a14');
     ctx.fillStyle = brew;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(190, 255, 140, 0.7)';
-    ctx.lineWidth = 2;
+    ctx.restore();
+  }
+
+  // A see-through layer of brew over the ingredients, so they look sunk in it.
+  function drawBrewFront(t) {
+    ctx.save();
+    interiorPath();
+    ctx.clip();
+    surfacePath(t);
+    ctx.fillStyle = 'rgba(40, 150, 50, 0.28)';
+    ctx.fill();
+    ctx.strokeStyle = brewColor(0.85);
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
     for (const b of bubbles) {
@@ -668,58 +840,66 @@
     ctx.setLineDash([]);
   }
 
-  function drawSprite(tier, x, y, r, angle = 0) {
-    const sprite = sprites[tier];
-    const full = (INGREDIENTS[tier].r + SPRITE_PAD) * (r / INGREDIENTS[tier].r);
+  // Draws an ingredient with (x, y) at its body's center of mass.
+  function drawShape(tier, x, y, angle = 0, k = 1) {
+    const sh = shapes[tier];
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
-    ctx.drawImage(sprite, -full, -full, full * 2, full * 2);
+    ctx.scale(k, k);
+    ctx.drawImage(sh.sprite, sh.offX - sh.box / 2, sh.offY - sh.box / 2, sh.box, sh.box);
     ctx.restore();
+  }
+
+  // Draws an ingredient's picture centered on (x, y), scaled to fit `fit` units across.
+  function drawIcon(tier, x, y, fit) {
+    const sh = shapes[tier];
+    const s = fit / (INGREDIENTS[tier].r * 2);
+    ctx.drawImage(sh.sprite, x - (sh.box * s) / 2, y - (sh.box * s) / 2, sh.box * s, sh.box * s);
   }
 
   function drawIngredients() {
     for (const b of ingredients) {
-      drawSprite(b.tier, b.position.x, b.position.y, b.circleRadius, b.angle);
-      if (b.overSince !== null) {
-        const k = (now - b.overSince) / OVER_LIMIT;
+      drawShape(b.tier, b.position.x, b.position.y, b.angle, b.k);
+      if (SHOW_SHAPES || b.overSince !== null) {
+        const k = b.overSince === null ? 0 : (now - b.overSince) / OVER_LIMIT;
         ctx.beginPath();
-        ctx.arc(b.position.x, b.position.y, b.circleRadius + 2, 0, TAU);
-        ctx.strokeStyle = `rgba(255, 60, 60, ${0.4 + 0.6 * Math.abs(Math.sin(now / 90)) * k})`;
-        ctx.lineWidth = 3;
+        const v = b.vertices;
+        ctx.moveTo(v[0].x, v[0].y);
+        for (let i = 1; i < v.length; i++) ctx.lineTo(v[i].x, v[i].y);
+        ctx.closePath();
+        ctx.strokeStyle = b.overSince === null ? 'rgba(255, 255, 255, 0.6)' : `rgba(255, 60, 60, ${0.4 + 0.6 * Math.abs(Math.sin(now / 90)) * k})`;
+        ctx.lineWidth = b.overSince === null ? 1 : 3;
         ctx.stroke();
       }
     }
   }
 
-  // The highest point under x that a dropped ingredient would land on.
-  function landingY(x, r) {
-    let y = FLOOR_Y - r;
+  // Roughly where a dropped ingredient would first touch something.
+  function landingY(x) {
+    let y = FLOOR_Y;
     for (const b of ingredients) {
-      const reach = b.circleRadius + r;
-      const dx = Math.abs(b.position.x - x);
-      if (dx < reach) y = Math.min(y, b.position.y - Math.sqrt(reach * reach - dx * dx));
+      if (x > b.bounds.min.x && x < b.bounds.max.x) y = Math.min(y, b.bounds.min.y);
     }
     return y;
   }
 
   function drawHeld() {
     if (state !== 'playing') return;
-    const r = INGREDIENTS[current].r;
-    const x = clamp(aimX, WALL_L + r + 1, WALL_R - r - 1);
+    const x = heldX();
     const ready = now >= canDropAt && stirLeft <= 0;
 
     ctx.setLineDash([4, 8]);
     ctx.strokeStyle = 'rgba(220, 200, 255, 0.35)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x, DROP_Y + r);
-    ctx.lineTo(x, landingY(x, r));
+    ctx.moveTo(x, DROP_Y + shapes[current].maxY);
+    ctx.lineTo(x, landingY(x));
     ctx.stroke();
     ctx.setLineDash([]);
 
     ctx.globalAlpha = ready ? 1 : 0.4;
-    drawSprite(current, x, DROP_Y + Math.sin(now / 300) * 2, r);
+    drawShape(current, x, DROP_Y + Math.sin(now / 300) * 2);
     ctx.globalAlpha = 1;
   }
 
@@ -795,7 +975,7 @@
     ctx.arc(x, y, r, 0, TAU);
     ctx.fill();
     ctx.stroke();
-    drawSprite(next, x, y, Math.min(22, INGREDIENTS[next].r));
+    drawIcon(next, x, y, 40);
     ctx.fillStyle = '#a594bd';
     ctx.font = '600 13px Grenze, Georgia, serif';
     ctx.textAlign = 'center';
@@ -811,6 +991,7 @@
     drawFire();
     drawCauldron(t);
     drawIngredients();
+    drawBrewFront(t);
     drawRim();
     drawHeld();
     drawLadle();
@@ -882,7 +1063,7 @@
   function renderGrimoire() {
     grimoireEl.replaceChildren(...INGREDIENTS.map((ing, i) => {
       const img = document.createElement('img');
-      img.src = sprites[i].toDataURL();
+      img.src = shapes[i].sprite.toDataURL();
       img.alt = discovered[i] ? ing.name : 'Undiscovered';
       img.title = discovered[i] ? ing.name : '???';
       if (!discovered[i]) img.className = 'locked';
@@ -962,6 +1143,13 @@
   resizeSky();
   renderGrimoire();
   updateHud();
-  if (AUTOPLAY) newGame();
+  if (AUTOPLAY) {
+    window.brewDebug = () => {
+      let top = FLOOR_Y, solid = 0;
+      for (const b of ingredients) { top = Math.min(top, b.bounds.min.y); solid += b.area; }
+      return { liquidY: Math.round(liquidY), pileTop: Math.round(top), n: ingredients.size, solid: Math.round(solid), state };
+    };
+    newGame();
+  }
   requestAnimationFrame(frame);
 })();
