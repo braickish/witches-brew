@@ -1,0 +1,16 @@
+{
+  "name": "witches-brew",
+  "private": true,
+  "type": "module",
+  "description": "Tools only: the game itself is a static site with no build step.",
+  "scripts": {
+    "test": "node --test tests/names.test.mjs tests/rules.test.mjs",
+    "test:live": "node tests/attacks.mjs",
+    "deploy:server": "supabase db push && supabase functions deploy start-run && supabase functions deploy submit-score"
+  },
+  "devDependencies": {
+    "obscenity": "0.4.6",
+    "playwright": "1.64.0",
+    "supabase": "2.122.0"
+  }
+}

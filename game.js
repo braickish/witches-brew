@@ -3,6 +3,7 @@
   'use strict';
 
   const { Engine, Body, Composite, Events, Vertices } = Matter;
+  const { DROP_WEIGHTS, Ledger } = BrewRules;
   const TAU = Math.PI * 2;
 
   // ---- Layout, in game units. The canvas is scaled to fit the screen. ----
@@ -312,21 +313,10 @@
   let liquidOverSince = null;
   let danger = 0;
   let shake = 0;
-  let combo = 0;
-  let lastMergeAt = -1e9;
+  let ledger = null;                     // the running score, and the record the leaderboard checks
+  let tick = 0;                          // physics steps since this game began
+  let run = null;                        // this game's one-time pass for the leaderboard, if it got one
   const keys = { left: false, right: false };
-
-  // Bigger ingredients come up more often as the score climbs.
-  function randomTier() {
-    const ramp = Math.min(1, score / 4000);
-    const weights = DROP_WEIGHTS.map((w, i) => w * (1 + ramp * i * 0.6));
-    let roll = Math.random() * weights.reduce((a, b) => a + b, 0);
-    for (let i = 0; i < weights.length; i++) {
-      roll -= weights[i];
-      if (roll < 0) return i;
-    }
-    return 0;
-  }
 
   // k < 1 makes it start smaller and swell up to full size.
   function makeIngredient(tier, x, y, k = 1) {
@@ -380,12 +370,14 @@
     score = 0;
     spoon = 'leaning';
     stirLeft = 0;
-    combo = 0;
     danger = 0;
     liquidY = LIQUID_START_Y;
     liquidOverSince = null;
-    current = randomTier();
-    next = randomTier();
+    run = AUTOPLAY ? null : Leaderboard.takeRun();
+    ledger = new Ledger(run ? run.seed : Math.floor(Math.random() * 2 ** 31));
+    tick = 0;
+    current = ledger.current;
+    next = ledger.next;
     canDropAt = now + 250;
     graceUntil = now + 500;
     state = 'playing';
@@ -403,8 +395,9 @@
     if (state !== 'playing' || now < canDropAt || stirLeft > 0) return;
     makeIngredient(current, heldX(), DROP_Y);
     Sound.voice(INGREDIENTS[current].sound);
-    current = next;
-    next = randomTier();
+    ledger.drop(tick);
+    current = ledger.current;
+    next = ledger.next;
     canDropAt = now + DROP_COOLDOWN;
   }
 
@@ -499,10 +492,6 @@
     }
   }
 
-  function points(tier) {
-    return ((tier + 1) * (tier + 2)) / 2;
-  }
-
   function processMerges() {
     for (const [a, b] of mergeQueue) {
       if (!ingredients.has(a) || !ingredients.has(b)) continue;
@@ -511,12 +500,10 @@
       const tier = a.tier;
       const x = (a.position.x + b.position.x) / 2;
       const y = (a.position.y + b.position.y) / 2;
-      combo = now - lastMergeAt < 900 ? combo + 1 : 1;
-      lastMergeAt = now;
-      const mult = Math.min(combo, 4);
+      const { pts, mult } = ledger.merge(tick, tier);
 
       if (tier === LAST) {
-        addScore(100 * mult, x, y);
+        addScore(pts, x, y);
         burst(x, y, '#ffd76a', 70, 8);
         burst(x, y, INGREDIENTS[tier].tint, 50, 5);
         floater(x, y - 40, 'The potion is complete!', '#ffd76a', 28);
@@ -534,12 +521,12 @@
         x: (a.velocity.x + b.velocity.x) / 2,
         y: Math.min(0, (a.velocity.y + b.velocity.y) / 2) - 1.5,
       });
-      addScore(points(nt) * mult, x, y);
+      addScore(pts, x, y);
       burst(x, y, INGREDIENTS[nt].color, 14 + nt * 3, 2 + nt * 0.35);
       Sound.merge(nt);
       Sound.voice(INGREDIENTS[nt].sound);
       if (nt >= 7) shake = Math.max(shake, nt - 2);
-      if (combo >= 2) floater(x, y - INGREDIENTS[nt].r - 28, `Combo ×${mult}!`, '#ff8a2a', 22);
+      if (ledger.combo >= 2) floater(x, y - INGREDIENTS[nt].r - 28, `Combo ×${mult}!`, '#ff8a2a', 22);
 
       if (!discovered[nt]) {
         discovered[nt] = true;
@@ -559,7 +546,7 @@
   }
 
   function addScore(pts, x, y) {
-    score += pts;
+    score = ledger.score;
     floater(x, y, `+${pts}`, '#ffffff', 20);
     updateHud();
   }
@@ -608,6 +595,7 @@
     overPanel.classList.remove('hidden');
     Sound.over();
     if (AUTOPLAY) setTimeout(newGame, 2500);
+    else Leaderboard.gameOver({ run, events: ledger.events, score });
   }
 
   // ---- The boil-over scene ----
@@ -745,6 +733,7 @@
   // ---- Main loop ----
   function step() {
     now += STEP;
+    tick++;
 
     if (AUTOPLAY && state === 'playing') autoplay();
     if (keys.left) aimX -= 6;
@@ -1576,13 +1565,14 @@
 
   window.addEventListener('keydown', (e) => {
     Sound.unlock();
+    if (Leaderboard.usingKeyboard()) return;
     const k = e.key.toLowerCase();
     if (k === 'arrowleft' || k === 'a') keys.left = true;
     else if (k === 'arrowright' || k === 'd') keys.right = true;
     else if (k === ' ' || k === 'enter' || k === 'arrowdown') {
       e.preventDefault();
       if (state === 'playing') drop();
-      else if (!e.repeat) newGame();
+      else if (!e.repeat && !overPanelAt) newGame();   // not during the boil-over, or you'd miss your score
     }
   });
   window.addEventListener('keyup', (e) => {
@@ -1611,6 +1601,7 @@
   resizeSky();
   renderGrimoire();
   updateHud();
+  if (!AUTOPLAY) Leaderboard.fetchRun();
   // Test hooks, only with ?autoplay or ?debug in the address.
   if (AUTOPLAY || params.has('debug')) {
     window.brew = {

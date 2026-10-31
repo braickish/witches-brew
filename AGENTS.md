@@ -29,5 +29,18 @@ A drop-and-merge browser game built with a parent and two kids. It has a spooky 
   when a Skull or better is brewed (`SPOON_RETURN_TIER`).
 - `?autoplay` makes the game play itself; `?debug` (or autoplay) exposes `window.brew` test hooks.
 - Deployed on GitHub Pages from `main` at the repo root: https://braickish.github.io/witches-brew/
+- Leaderboard: hosted Supabase project `dcbuizimphwlnajjtsfe` (`witches-brew`), separate from spigots. `leaderboard.js` is the
+  browser side; the server is two edge functions (`start-run`, `submit-score`) and one migration. The public key can only read
+  visible scores; only the functions can write.
+- How scores are protected: the browser never sends a score. It gets a one-time game id and seed, records its drops and merges,
+  and `submit-score` replays that list through `supabase/functions/_shared/rules.js` to work out the score, checking the drop
+  order and cooldown, that merged ingredients existed, and that enough real time has passed. It does no physics, so a carefully
+  forged list that waits out the clock would pass. That was a deliberate choice: the aim is stopping scripts posting a score, not bots.
+- `rules.js` is loaded by both the game and the server, so scoring, drop odds and the tier count live there. **Any change to it
+  needs `npm run deploy:server` as well as a push**, and games in open tabs fail to submit until they reload.
+- Names: `_shared/names.js` (obscenity library plus our own list; the library alone missed many slurs). Add any new
+  word to `tests/names.test.mjs` too. To remove an entry, tick `hidden` on its row in the Supabase dashboard (Table Editor → `scores`).
+- Tests: `npm test` (rules and names), `npm run test:live` (tries to cheat against the real server; nothing reaches the board).
+  Don't commit the database password or secret key. The CLI needs neither for `db push` or deploying once logged in.
 - Ideas for later: the kids' own drawings as ingredient art (`image:` field), recorded sounds,
   a title-screen animation, tuning stir strength and drop odds.

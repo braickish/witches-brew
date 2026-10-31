@@ -14,7 +14,9 @@
 //   image    optional picture, e.g. 'assets/spider.png'. Use a PNG with a transparent
 //            background: its outline becomes the ingredient's shape.
 //
-// Only the first five can be dropped; the rest have to be brewed.
+// Only the first five can be dropped; the rest have to be brewed. The odds of each one coming up,
+// and the scoring, live in supabase/functions/_shared/rules.js because the leaderboard server uses them too.
+// Adding or removing an ingredient means changing LAST_TIER there and redeploying the server (see AGENTS.md).
 const INGREDIENTS = [
   { name: 'Eye of Newt', emoji: '👁️', r: 20, color: '#9fd36b' },
   { name: 'Worm',        emoji: '🪱', r: 24, color: '#ff8fa3' },
@@ -28,6 +30,3 @@ const INGREDIENTS = [
   { name: 'Ghost',       emoji: '👻', r: 76, color: '#cfe0ff', sound: 'wooo' },
   { name: 'Blood Moon',  emoji: '🌕', r: 85, color: '#ff3a3a', tint: '#d4202c' },
 ];
-
-// How likely each droppable ingredient is to come up next.
-const DROP_WEIGHTS = [30, 25, 20, 15, 10];

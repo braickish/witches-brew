@@ -42,6 +42,7 @@
         <p class="hint">A wise witch keeps one trick close at hand…</p>
         <button id="start-btn" class="big-btn">Start brewing</button>
         <p class="keys">Keyboard: ← → aim · Space drop</p>
+        <button class="board-link link-btn">See the leaderboard</button>
       </div>
     </div>
 
@@ -50,7 +51,26 @@
         <h2>It boiled over!</h2>
         <p class="final">Score <span id="final-score">0</span></p>
         <p id="new-best" class="new-best hidden">New best brew!</p>
+        <p id="board-result" class="board-result hidden"></p>
+        <form id="name-form" class="name-form hidden">
+          <label for="name-input">You made the leaderboard! Pick a nickname (not your real name):</label>
+          <div class="name-row">
+            <input id="name-input" type="text" maxlength="12" autocomplete="off" autocapitalize="words" spellcheck="false" required>
+            <button id="name-btn" type="submit" class="small-btn">Add</button>
+          </div>
+          <p id="name-error" class="name-error hidden" role="alert"></p>
+        </form>
         <button id="again-btn" class="big-btn">Brew again</button>
+        <button class="board-link link-btn">See the leaderboard</button>
+      </div>
+    </div>
+
+    <div id="board-panel" class="panel hidden">
+      <div class="card board-card">
+        <h2>Leaderboard</h2>
+        <p id="board-status" class="hint"></p>
+        <ol id="board-list"></ol>
+        <button id="board-close" class="small-btn">Back</button>
       </div>
     </div>
   </main>
@@ -59,8 +79,10 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
+  <script src="supabase/functions/_shared/rules.js"></script>
   <script src="ingredients.js"></script>
   <script src="sound.js"></script>
+  <script src="leaderboard.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

@@ -27,6 +27,7 @@ Two Blood Moons complete the potion for a big bonus.
 ## Make it yours
 
 Everything about the ingredients lives in [`ingredients.js`](ingredients.js): names, emoji, sizes and colors.
+The odds and scoring are in [`rules.js`](supabase/functions/_shared/rules.js), because the leaderboard server uses them too.
 
 To use your own drawings, cut them out on a transparent background, save as a PNG in `assets/`
 (e.g. `assets/spider.png`), and add `image: 'assets/spider.png'` to that ingredient. The game traces
