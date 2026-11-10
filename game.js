@@ -300,6 +300,7 @@
   let canDropAt = 0;
   let spoon = 'leaning';                 // 'leaning' | 'stirring' | 'gone' | 'returning'
   let spoonReturnAt = 0;
+  let spoonOwed = false;                 // a Skull or better was brewed mid-stir, so the spoon comes back after
   let cat = null;                        // the black cat strolling past after a stir
   let boilAt = null;                     // when the brew boiled over
   let overPanelAt = 0;
@@ -369,6 +370,7 @@
     sizzled = false;
     score = 0;
     spoon = 'leaning';
+    spoonOwed = false;
     stirLeft = 0;
     danger = 0;
     liquidY = LIQUID_START_Y;
@@ -438,7 +440,16 @@
       const p = spoonPose();
       burst(p.bowl.x, p.bowl.y - 60, '#d7b3ff', 30, 4);
       cat = { x: W + 70, dir: -1, phase: 0, pause: 0, meowed: false };
+      if (spoonOwed) returnSpoon();
     }
+  }
+
+  // Drop the spoon back out of the sky so it can be used again.
+  function returnSpoon() {
+    spoon = 'returning';
+    spoonReturnAt = now;
+    spoonOwed = false;
+    floater(SPOON_BOWL.x - 60, RIM_Y - 70, 'The spoon returns!', '#ffd27a', 22);
   }
 
   // ---- The brew level ----
@@ -536,10 +547,10 @@
         Sound.discover();
       }
 
-      if (nt >= SPOON_RETURN_TIER && spoon === 'gone') {
-        spoon = 'returning';
-        spoonReturnAt = now;
-        floater(SPOON_BOWL.x - 60, RIM_Y - 70, 'The spoon returns!', '#ffd27a', 22);
+      // Brewing a Skull or better brings the spoon back, even if it happens during the stir.
+      if (nt >= SPOON_RETURN_TIER) {
+        if (spoon === 'gone') returnSpoon();
+        else if (spoon === 'stirring') spoonOwed = true;
       }
     }
     mergeQueue = [];
@@ -1612,7 +1623,7 @@
       },
       stir,
       boilOver: gameOver,
-      spoonBack() { spoon = 'returning'; spoonReturnAt = now; },
+      spoonBack() { returnSpoon(); },
     };
   }
   if (AUTOPLAY) newGame();

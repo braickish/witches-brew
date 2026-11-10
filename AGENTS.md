@@ -18,8 +18,9 @@ A drop-and-merge browser game built with a parent and two kids. It has a spooky 
   reaching the rim is a boil-over, same as an ingredient sitting above it. Tune with `LIQUID_START_Y`.
 - Merges are queued from `collisionStart`/`collisionActive` and handled after each engine step. The new
   ingredient starts at the old size and grows so it doesn't blow the pile apart.
-- Stir is triggered by clicking the spoon leaning on the cauldron (one use per game, deliberately undiscoverable
-  except for an occasional glint). Stir is a force field: a push around the bowl's center plus a slight lift, capped speed, with a
+- Stir is triggered by clicking the spoon leaning on the cauldron (deliberately undiscoverable except for an
+  occasional glint). The spoon is used up by a stir and comes back when you brew a Skull or better
+  (`SPOON_RETURN_TIER`), including a Skull brewed during the stir itself (`spoonOwed`). Stir is a force field: a push around the bowl's center plus a slight lift, capped speed, with a
   grace period on the boil-over check. An invisible lid at y=0 keeps things from leaving the screen.
 - Sounds: all synthesized in `sound.js`. Only some ingredients name a `sound` voice in `ingredients.js` (bat, rat,
   cat, ghost); it plays when one is dropped or brewed. Other drops are silent by request. Random ambient noises (owl, howl, wind, creak, crow, whisper) every 9-18 s.
